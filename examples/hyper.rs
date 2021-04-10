@@ -15,6 +15,7 @@ mod hyper_compat {
         pin::Pin,
         task::{Context, Poll},
     };
+    use hyper::service::make_service_fn;
 
     use glommio::{
         enclose,
@@ -90,8 +91,9 @@ mod hyper_compat {
                     let addr = stream.local_addr().unwrap();
                     Local::local(enclose!{(conn_control) async move {
                         let _permit = conn_control.acquire_permit(1).await;
+                        let make_service = make_service_fn(|_| async { Ok::<_, Infallible>(service_fn(service)) });
                         let builder = hyper::Server::builder(HyperStream(stream)).executor(HyperExecutor);
-                        if let Err(x) = builder.serve(service_fn(service)).await {
+                        if let Err(x) = builder.serve(make_service).await {
                             panic!("Stream from {:?} failed with error {:?}", addr, x);
                         }
                     }}).detach();
