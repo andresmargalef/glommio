@@ -90,7 +90,8 @@ mod hyper_compat {
                     let addr = stream.local_addr().unwrap();
                     Local::local(enclose!{(conn_control) async move {
                         let _permit = conn_control.acquire_permit(1).await;
-                        if let Err(x) = hyper::Server::builder(incoming).executor(HyperExecutor).serve_connection(HyperStream(stream), service_fn(service)).await {
+                        let builder = hyper::Server::builder(HyperStream(stream)).executor(HyperExecutor);
+                        if let Err(x) = builder.serve(service_fn(service)).await {
                             panic!("Stream from {:?} failed with error {:?}", addr, x);
                         }
                     }}).detach();
