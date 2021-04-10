@@ -101,7 +101,52 @@ use glommio::LocalExecutorBuilder;
 use hyper::{Body, Method, Request, Response, StatusCode};
 use std::convert::Infallible;
 
+use hyper::{
+    header::{HeaderValue, CONNECTION},
+    Uri, client::HttpConnector, Client
+};
+
+pub type HttpClient = Client<HttpConnector>;
+
+lazy_static! {
+    pub static ref STATIC_CLIENT: HttpClient = Client::builder()
+        .pool_idle_timeout(std::time::Duration::from_secs(30))
+        .pool_max_idle_per_host(300)
+        .http1_max_buf_size(1024*1024)
+        .build_http();
+}
+
+pub async fn aggregate(body: hyper::Body) -> Result<hyper::Body, hyper::Error> {
+    let mut bufs = Vec::new();
+
+    futures_util::pin_mut!(body);
+    while let Some(buf) = body.data().await {
+        let buf = buf;
+        bufs.push(buf);
+    }
+
+    let stream = futures_util::stream::iter(bufs);
+
+    let body = Body::wrap_stream(stream);
+
+    Ok(body)
+}
+
 async fn hyper_demo(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+    let (mut parts, body) = req.into_parts();
+
+    // this line is to fetch all the body before sending to clients
+    // If store&forward not works, comment this line
+    let body = aggregate(body).await?;
+
+    parts.uri = Uri::from_static("http://consumer1:8080/consume1");
+    parts
+        .headers
+        .insert(CONNECTION, HeaderValue::from_static("keep-alive"));
+    let req_fast = Request::from_parts(parts, body);
+    let mapped = STATIC_CLIENT.request(req_fast).await?;
+    Ok(mapped)
+    /*
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/hello") => Ok(Response::new(Body::from("world"))),
         (&Method::GET, "/world") => Ok(Response::new(Body::from("hello"))),
@@ -109,7 +154,7 @@ async fn hyper_demo(req: Request<Body>) -> Result<Response<Body>, Infallible> {
             .status(StatusCode::NOT_FOUND)
             .body(Body::from("notfound"))
             .unwrap()),
-    }
+    }*/
 }
 
 fn main() {
