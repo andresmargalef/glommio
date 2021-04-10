@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate lazy_static;
+
 // Example on how to use the Hyper server in !Send mode.
 // The clients are harder, see https://github.com/hyperium/hyper/issues/2341 for details
 //
@@ -20,7 +23,7 @@ mod hyper_compat {
         Local,
         Task,
     };
-    use hyper::{server::conn::Http, Body, Request, Response};
+    use hyper::{Body, Request, Response};
     use std::{io, rc::Rc};
 
     #[derive(Clone)]
@@ -87,7 +90,7 @@ mod hyper_compat {
                     let addr = stream.local_addr().unwrap();
                     Local::local(enclose!{(conn_control) async move {
                         let _permit = conn_control.acquire_permit(1).await;
-                        if let Err(x) = Http::new().with_executor(HyperExecutor).serve_connection(HyperStream(stream), service_fn(service)).await {
+                        if let Err(x) = hyper::Server::builder(incoming).executor(HyperExecutor).serve_connection(HyperStream(stream), service_fn(service)).await {
                             panic!("Stream from {:?} failed with error {:?}", addr, x);
                         }
                     }}).detach();
