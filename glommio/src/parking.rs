@@ -293,9 +293,9 @@ impl Reactor {
         sys::write_eventfd(remote);
     }
 
-    fn new_source(&self, raw: RawFd, stype: SourceType) -> Source {
+    fn new_source(self: &Rc<Self>, raw: RawFd, stype: SourceType) -> Source {
         let ioreq = self.current_io_requirements.get();
-        sys::Source::new(ioreq, raw, stype)
+        sys::Source::new(ioreq, raw, stype, Rc::downgrade(self))
     }
 
     pub(crate) fn inform_io_requirements(&self, req: IoRequirements) {
@@ -336,7 +336,7 @@ impl Reactor {
     }
 
     pub(crate) fn write_dma(
-        &self,
+        self: &Rc<Self>,
         raw: RawFd,
         buf: DmaBuffer,
         pos: u64,
@@ -347,7 +347,7 @@ impl Reactor {
         source
     }
 
-    pub(crate) fn write_buffered(&self, raw: RawFd, buf: Vec<u8>, pos: u64) -> Source {
+    pub(crate) fn write_buffered(self: &Rc<Self>, raw: RawFd, buf: Vec<u8>, pos: u64) -> Source {
         let source = self.new_source(
             raw,
             SourceType::Write(
@@ -359,20 +359,25 @@ impl Reactor {
         source
     }
 
-    pub(crate) fn connect(&self, raw: RawFd, addr: SockAddr) -> Source {
+    pub(crate) fn connect(self: &Rc<Self>, raw: RawFd, addr: SockAddr) -> Source {
         let source = self.new_source(raw, SourceType::Connect(addr));
         self.sys.connect(&source);
         source
     }
 
-    pub(crate) fn connect_timeout(&self, raw: RawFd, addr: SockAddr, d: Duration) -> Source {
+    pub(crate) fn connect_timeout(
+        self: &Rc<Self>,
+        raw: RawFd,
+        addr: SockAddr,
+        d: Duration,
+    ) -> Source {
         let source = self.new_source(raw, SourceType::Connect(addr));
         source.set_timeout(d);
         self.sys.connect(&source);
         source
     }
 
-    pub(crate) fn accept(&self, raw: RawFd) -> Source {
+    pub(crate) fn accept(self: &Rc<Self>, raw: RawFd) -> Source {
         let addr = SockAddrStorage::uninit();
         let source = self.new_source(raw, SourceType::Accept(addr));
         self.sys.accept(&source);
@@ -380,7 +385,7 @@ impl Reactor {
     }
 
     pub(crate) fn rushed_send(
-        &self,
+        self: &Rc<Self>,
         fd: RawFd,
         buf: DmaBuffer,
         timeout: Option<Duration>,
@@ -395,7 +400,7 @@ impl Reactor {
     }
 
     pub(crate) fn rushed_sendmsg(
-        &self,
+        self: &Rc<Self>,
         fd: RawFd,
         buf: DmaBuffer,
         addr: nix::sys::socket::SockAddr,
@@ -428,7 +433,7 @@ impl Reactor {
     }
 
     pub(crate) fn rushed_recvmsg(
-        &self,
+        self: &Rc<Self>,
         fd: RawFd,
         size: usize,
         flags: MsgFlags,
@@ -465,7 +470,7 @@ impl Reactor {
     }
 
     pub(crate) fn rushed_recv(
-        &self,
+        self: &Rc<Self>,
         fd: RawFd,
         size: usize,
         timeout: Option<Duration>,
@@ -479,14 +484,14 @@ impl Reactor {
         Ok(source)
     }
 
-    pub(crate) fn recv(&self, fd: RawFd, size: usize, flags: MsgFlags) -> Source {
+    pub(crate) fn recv(self: &Rc<Self>, fd: RawFd, size: usize, flags: MsgFlags) -> Source {
         let source = self.new_source(fd, SourceType::SockRecv(None));
         self.sys.recv(&source, size, flags);
         source
     }
 
     pub(crate) fn read_dma(
-        &self,
+        self: &Rc<Self>,
         raw: RawFd,
         pos: u64,
         size: usize,
@@ -497,7 +502,7 @@ impl Reactor {
         source
     }
 
-    pub(crate) fn read_buffered(&self, raw: RawFd, pos: u64, size: usize) -> Source {
+    pub(crate) fn read_buffered(self: &Rc<Self>, raw: RawFd, pos: u64, size: usize) -> Source {
         let source = self.new_source(
             raw,
             SourceType::Read(PollableStatus::NonPollable(DirectIo::Disabled), None),
@@ -506,14 +511,14 @@ impl Reactor {
         source
     }
 
-    pub(crate) fn fdatasync(&self, raw: RawFd) -> Source {
+    pub(crate) fn fdatasync(self: &Rc<Self>, raw: RawFd) -> Source {
         let source = self.new_source(raw, SourceType::FdataSync);
         self.sys.fdatasync(&source);
         source
     }
 
     pub(crate) fn fallocate(
-        &self,
+        self: &Rc<Self>,
         raw: RawFd,
         position: u64,
         size: u64,
@@ -524,13 +529,13 @@ impl Reactor {
         source
     }
 
-    pub(crate) fn close(&self, raw: RawFd) -> Source {
+    pub(crate) fn close(self: &Rc<Self>, raw: RawFd) -> Source {
         let source = self.new_source(raw, SourceType::Close);
         self.sys.close(&source);
         source
     }
 
-    pub(crate) fn statx(&self, raw: RawFd, path: &Path) -> Source {
+    pub(crate) fn statx(self: &Rc<Self>, raw: RawFd, path: &Path) -> Source {
         let path = CString::new(path.as_os_str().as_bytes()).expect("path contained null!");
 
         let statx_buf = unsafe {
@@ -547,7 +552,7 @@ impl Reactor {
     }
 
     pub(crate) fn open_at(
-        &self,
+        self: &Rc<Self>,
         dir: RawFd,
         path: &Path,
         flags: libc::c_int,
@@ -561,7 +566,7 @@ impl Reactor {
     }
 
     #[cfg(feature = "bench")]
-    pub(crate) fn nop(&self) -> Source {
+    pub(crate) fn nop(self: &Rc<Self>) -> Source {
         let source = self.new_source(-1, SourceType::Noop);
         self.sys.nop(&source);
         source

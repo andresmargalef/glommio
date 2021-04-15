@@ -52,6 +52,7 @@ use std::sync::Arc;
 use crate::uring_sys::IoRingOp;
 
 use super::{EnqueuedSource, TimeSpec64};
+use std::rc::Weak;
 
 const MSG_ZEROCOPY: i32 = 0x4000000;
 
@@ -877,6 +878,7 @@ impl SleepableRing {
             IoRequirements::default(),
             -1,
             SourceType::Timeout(TimeSpec64::from(d)),
+            Weak::new(),
         );
         let new_id = add_source(&source, self.submission_queue.clone());
         let op = match &*source.source_type() {
@@ -1144,6 +1146,7 @@ impl Reactor {
             IoRequirements::default(),
             notifier.eventfd_fd(),
             SourceType::Read(PollableStatus::NonPollable(DirectIo::Disabled), None),
+            Weak::new(),
         );
         assert_eq!(main_ring.install_eventfd(&eventfd_src), true);
 
@@ -1328,6 +1331,7 @@ impl Reactor {
             IoRequirements::default(),
             self.link_fd,
             SourceType::LinkRings,
+            Weak::new(),
         );
         ring.sleep(&mut link_rings, eventfd_src)
             .or_else(Self::busy_ok)?;
@@ -1559,6 +1563,7 @@ mod tests {
                 IoRequirements::default(),
                 -1,
                 SourceType::Timeout(TimeSpec64::from(Duration::from_millis(millis))),
+                Weak::new(),
             );
             let op = match &*source.source_type() {
                 SourceType::Timeout(ts) => UringOpDescriptor::Timeout(&ts.raw as *const _),

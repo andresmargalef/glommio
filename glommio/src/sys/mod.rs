@@ -3,7 +3,7 @@
 //
 // This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2020 Datadog, Inc.
 //
-use crate::{iou::sqe::SockAddrStorage, uring_sys};
+use crate::{iou::sqe::SockAddrStorage, parking, uring_sys};
 use ahash::AHashMap;
 use lockfree::channel::mpsc;
 use log::debug;
@@ -224,6 +224,7 @@ use crate::{
     error::{ExecutorErrorKind, GlommioError, ReactorErrorKind},
     IoRequirements,
 };
+use std::rc::Weak;
 
 #[derive(Debug, Default)]
 pub(crate) struct ReactorGlobalState {
@@ -523,11 +524,17 @@ impl fmt::Debug for InnerSource {
 #[derive(Debug)]
 pub struct Source {
     pub(crate) inner: Rc<InnerSource>,
+    pub(crate) reactor: Weak<parking::Reactor>,
 }
 
 impl Source {
     /// Registers an I/O source in the reactor.
-    pub(crate) fn new(ioreq: IoRequirements, raw: RawFd, source_type: SourceType) -> Source {
+    pub(crate) fn new(
+        ioreq: IoRequirements,
+        raw: RawFd,
+        source_type: SourceType,
+        reactor: Weak<parking::Reactor>,
+    ) -> Source {
         Source {
             inner: Rc::new(InnerSource {
                 raw,
@@ -537,6 +544,7 @@ impl Source {
                 enqueued: Cell::new(None),
                 timeout: RefCell::new(None),
             }),
+            reactor,
         }
     }
 }
