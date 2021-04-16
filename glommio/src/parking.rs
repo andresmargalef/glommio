@@ -229,6 +229,52 @@ impl SharedChannels {
     }
 }
 
+/// Allows information about the current state of this reactor to be consumed
+/// by applications.
+#[derive(Default, Debug, Copy, Clone)]
+pub struct IoStats {
+    files_opened: u64,
+    files_closed: u64,
+    files_reads: u64,
+    files_bytes_read: u64,
+    files_writes: u64,
+    files_bytes_written: u64,
+}
+
+impl IoStats {
+    fn new() -> Self {
+        Default::default()
+    }
+
+    /// The total amount of files opened in this executor so far.
+    ///
+    /// [file_opened] - [file_closed] gives the current open files count
+    pub fn file_opened(&self) -> u64 {
+        self.files_opened
+    }
+
+    /// The total amount of files closed in this executor so far.
+    ///
+    /// [file_opened] - [file_closed] gives the current open files count
+    pub fn file_closed(&self) -> u64 {
+        self.files_opened
+    }
+
+    /// File read IO stats
+    ///
+    /// Returns the number of individual read ops as well as bytes read
+    pub fn file_reads(&self) -> (u64, u64) {
+        (self.files_reads, self.files_bytes_read)
+    }
+
+    /// File write IO stats
+    ///
+    /// Returns the number of individual write ops as well as bytes written
+    pub fn file_writes(&self) -> (u64, u64) {
+        (self.files_writes, self.files_bytes_written)
+    }
+}
+
 /// The reactor.
 ///
 /// Every async I/O handle and every timer is registered here. Invocations of
@@ -262,6 +308,8 @@ pub(crate) struct Reactor {
     /// refcell) every time. Acquire during initialization
     preempt_ptr_head: *const u32,
     preempt_ptr_tail: *const AtomicU32,
+
+    pub(crate) stats: RefCell<IoStats>,
 }
 
 impl Reactor {
@@ -277,7 +325,12 @@ impl Reactor {
             wakers: RefCell::new(Vec::with_capacity(256)),
             preempt_ptr_head,
             preempt_ptr_tail: preempt_ptr_tail as _,
+            stats: RefCell::new(IoStats::new()),
         }
+    }
+
+    pub(crate) fn io_stats(&self) -> IoStats {
+        *self.stats.borrow()
     }
 
     #[inline(always)]
@@ -697,14 +750,38 @@ impl Reactor {
 // be allowed in files that don't support it, and same for readable() writable()
 impl Source {
     pub(crate) async fn collect_rw(&self) -> io::Result<usize> {
-        future::poll_fn(|cx| {
-            if let Some(result) = self.take_result() {
-                return Poll::Ready(result);
-            }
+        self.collect_io_stats(
+            future::poll_fn(|cx| {
+                if let Some(result) = self.take_result() {
+                    return Poll::Ready(result);
+                }
 
-            self.add_waiter(cx.waker().clone());
-            Poll::Pending
-        })
-        .await
+                self.add_waiter(cx.waker().clone());
+                Poll::Pending
+            })
+                .await,
+        )
+    }
+
+    fn collect_io_stats(&self, io_result: io::Result<usize>) -> io::Result<usize> {
+        if let Some(reactor) = self.reactor.upgrade() {
+            if let Ok(bytes) = io_result {
+                let mut stats = reactor.stats.borrow_mut();
+                match &*self.source_type() {
+                    SourceType::Open(_) => stats.files_opened += 1,
+                    SourceType::Close => stats.files_closed += 1,
+                    SourceType::Write(_, _) => {
+                        stats.files_bytes_written += bytes as u64;
+                        stats.files_writes += 1;
+                    }
+                    SourceType::Read(_, _) => {
+                        stats.files_bytes_read += bytes as u64;
+                        stats.files_reads += 1;
+                    }
+                    _ => {}
+                }
+            }
+        };
+        io_result
     }
 }

@@ -782,7 +782,7 @@ impl Source {
         self.inner.io_requirements.latency_req
     }
 
-    fn source_type(&self) -> Ref<'_, SourceType> {
+    pub(crate) fn source_type(&self) -> Ref<'_, SourceType> {
         self.inner.source_type.borrow()
     }
 
