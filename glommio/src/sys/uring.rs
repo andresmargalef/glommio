@@ -879,6 +879,7 @@ impl SleepableRing {
             -1,
             SourceType::Timeout(TimeSpec64::from(d)),
             Weak::new(),
+            None,
         );
         let new_id = add_source(&source, self.submission_queue.clone());
         let op = match &*source.source_type() {
@@ -1147,6 +1148,7 @@ impl Reactor {
             notifier.eventfd_fd(),
             SourceType::Read(PollableStatus::NonPollable(DirectIo::Disabled), None),
             Weak::new(),
+            None,
         );
         assert_eq!(main_ring.install_eventfd(&eventfd_src), true);
 
@@ -1332,6 +1334,7 @@ impl Reactor {
             self.link_fd,
             SourceType::LinkRings,
             Weak::new(),
+            None,
         );
         ring.sleep(&mut link_rings, eventfd_src)
             .or_else(Self::busy_ok)?;
@@ -1564,6 +1567,7 @@ mod tests {
                 -1,
                 SourceType::Timeout(TimeSpec64::from(Duration::from_millis(millis))),
                 Weak::new(),
+                None,
             );
             let op = match &*source.source_type() {
                 SourceType::Timeout(ts) => UringOpDescriptor::Timeout(&ts.raw as *const _),

@@ -3,7 +3,7 @@
 //
 // This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2020 Datadog, Inc.
 //
-use crate::{iou::sqe::SockAddrStorage, parking, uring_sys};
+use crate::{iou::sqe::SockAddrStorage, parking, uring_sys, TaskQueueHandle};
 use ahash::AHashMap;
 use lockfree::channel::mpsc;
 use log::debug;
@@ -525,6 +525,7 @@ impl fmt::Debug for InnerSource {
 pub struct Source {
     pub(crate) inner: Rc<InnerSource>,
     pub(crate) reactor: Weak<parking::Reactor>,
+    pub(crate) task_queue: Option<TaskQueueHandle>,
 }
 
 impl Source {
@@ -534,6 +535,7 @@ impl Source {
         raw: RawFd,
         source_type: SourceType,
         reactor: Weak<parking::Reactor>,
+        task_queue: Option<TaskQueueHandle>,
     ) -> Source {
         Source {
             inner: Rc::new(InnerSource {
@@ -545,6 +547,7 @@ impl Source {
                 timeout: RefCell::new(None),
             }),
             reactor,
+            task_queue,
         }
     }
 }

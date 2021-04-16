@@ -55,6 +55,7 @@ use crate::{
     IoRequirements,
     Latency,
     Local,
+    TaskQueueHandle,
 };
 
 /// Waits for a notification.
@@ -310,6 +311,7 @@ pub(crate) struct Reactor {
     preempt_ptr_tail: *const AtomicU32,
 
     pub(crate) stats: RefCell<IoStats>,
+    pub(crate) per_task_queue_stats: RefCell<AHashMap<TaskQueueHandle, IoStats>>,
 }
 
 impl Reactor {
@@ -326,11 +328,16 @@ impl Reactor {
             preempt_ptr_head,
             preempt_ptr_tail: preempt_ptr_tail as _,
             stats: RefCell::new(IoStats::new()),
+            per_task_queue_stats: RefCell::new(AHashMap::new()),
         }
     }
 
     pub(crate) fn io_stats(&self) -> IoStats {
         *self.stats.borrow()
+    }
+
+    pub(crate) fn task_queue_io_stats(&self, handle: &TaskQueueHandle) -> Option<IoStats> {
+        self.per_task_queue_stats.borrow().get(handle).copied()
     }
 
     #[inline(always)]
@@ -348,7 +355,13 @@ impl Reactor {
 
     fn new_source(self: &Rc<Self>, raw: RawFd, stype: SourceType) -> Source {
         let ioreq = self.current_io_requirements.get();
-        sys::Source::new(ioreq, raw, stype, Rc::downgrade(self))
+        sys::Source::new(
+            ioreq,
+            raw,
+            stype,
+            Rc::downgrade(self),
+            Some(Local::current_task_queue()),
+        )
     }
 
     pub(crate) fn inform_io_requirements(&self, req: IoRequirements) {
@@ -759,15 +772,14 @@ impl Source {
                 self.add_waiter(cx.waker().clone());
                 Poll::Pending
             })
-                .await,
+            .await,
         )
     }
 
     fn collect_io_stats(&self, io_result: io::Result<usize>) -> io::Result<usize> {
         if let Some(reactor) = self.reactor.upgrade() {
             if let Ok(bytes) = io_result {
-                let mut stats = reactor.stats.borrow_mut();
-                match &*self.source_type() {
+                let collect = |t: &SourceType, stats: &mut IoStats| match t {
                     SourceType::Open(_) => stats.files_opened += 1,
                     SourceType::Close => stats.files_closed += 1,
                     SourceType::Write(_, _) => {
@@ -779,6 +791,20 @@ impl Source {
                         stats.files_reads += 1;
                     }
                     _ => {}
+                };
+
+                collect(&*self.source_type(), &mut *reactor.stats.borrow_mut());
+                if let Some(handle) = self.task_queue {
+                    reactor
+                        .per_task_queue_stats
+                        .borrow_mut()
+                        .entry(handle)
+                        .and_modify(|stats| collect(&*self.source_type(), stats))
+                        .or_insert_with(|| {
+                            let mut stats: IoStats = Default::default();
+                            collect(&*self.source_type(), &mut stats);
+                            stats
+                        });
                 }
             }
         };
