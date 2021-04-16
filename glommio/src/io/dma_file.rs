@@ -547,6 +547,12 @@ pub(crate) mod test {
         }
 
         new_file.close().await.expect("failed to close file");
+
+        let stats = Local::io_stats();
+        assert_eq!(stats.file_opened(), 2);
+        assert_eq!(stats.file_closed(), 2);
+        assert_eq!(stats.file_reads(), (2, 4608));
+        assert_eq!(stats.file_writes(), (1, 4096));
     });
 
     dma_file_test!(file_invalid_readonly_write, path, _k, {
@@ -573,6 +579,7 @@ pub(crate) mod test {
             .await
             .expect_err("pre allocating read-only files should fail");
         new_file.close().await.expect("failed to close file");
+        assert_eq!(Local::io_stats().file_writes(), (0, 0));
     });
 
     dma_file_test!(file_empty_read, path, _k, {
@@ -584,6 +591,11 @@ pub(crate) mod test {
         let buf = new_file.read_at(0, 512).await.expect("failed to read");
         std::assert_eq!(buf.len(), 0);
         new_file.close().await.expect("failed to close file");
+
+        let stats = Local::io_stats();
+        assert_eq!(stats.file_opened(), 1);
+        assert_eq!(stats.file_closed(), 1);
+        assert_eq!(stats.file_reads(), (1, 0));
     });
 
     // Futures not polled. Should be in the submission queue
@@ -607,6 +619,12 @@ pub(crate) mod test {
         let _ = futures::poll!(&mut all);
         drop(all);
         file.close().await.unwrap();
+
+        let stats = Local::io_stats();
+        assert_eq!(stats.file_opened(), 1);
+        assert_eq!(stats.file_closed(), 1);
+        assert_eq!(stats.file_reads(), (0, 0));
+        assert_eq!(stats.file_writes(), (0, 0));
     });
 
     // Futures polled. Should be a mixture of in the ring and in the in the
