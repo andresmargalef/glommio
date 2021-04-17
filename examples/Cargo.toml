@@ -16,6 +16,8 @@ fastrand = "1.4.0"
 fasthash = "0.3.2"
 futures-util = "0.3"
 lazy_static = "1.4.0"
+http-body = "0.4"
+bytes = "*"
 
 # hyper and tokio for the hyper example. We just need the traits from Tokio
 hyper = { version = "0.14.5", default-features = false, features = ["server", "stream", "client", "http1", "http2", "tcp"]  }

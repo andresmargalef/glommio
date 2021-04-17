@@ -10,11 +10,14 @@ extern crate lazy_static;
 mod hyper_compat {
     use futures_lite::{AsyncRead, AsyncWrite, Future};
     use hyper::service::service_fn;
+    use tokio::io::ReadBuf;
     use std::{
         net::SocketAddr,
         pin::Pin,
         task::{Context, Poll},
+        convert::Infallible
     };
+
     use hyper::service::make_service_fn;
 
     use glommio::{
@@ -26,6 +29,7 @@ mod hyper_compat {
     };
     use hyper::{Body, Request, Response};
     use std::{io, rc::Rc};
+    use http_body::Body as HttpBody;
 
     #[derive(Clone)]
     struct HyperExecutor;
@@ -40,14 +44,38 @@ mod hyper_compat {
         }
     }
 
+
+    struct HyperServer(pub Option<HyperStream>);
+    
+    impl hyper::server::accept::Accept for HyperServer {
+        type Conn=HyperStream;
+
+        type Error=Infallible;
+
+        fn poll_accept(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<Option<Result<Self::Conn, Self::Error>>> {
+            Poll::Ready(Some(Ok(self.0.take().unwrap())))
+        }
+    }
+
     struct HyperStream(pub TcpStream);
+    
+    
+
     impl tokio::io::AsyncRead for HyperStream {
         fn poll_read(
             mut self: Pin<&mut Self>,
             cx: &mut Context,
-            buf: &mut [u8],
-        ) -> Poll<io::Result<usize>> {
-            Pin::new(&mut self.0).poll_read(cx, buf)
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.0).poll_read(cx, buf.initialize_unfilled()).map(|e| {
+                match e {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err(e)
+                }
+            })
         }
     }
 
@@ -92,7 +120,7 @@ mod hyper_compat {
                     Local::local(enclose!{(conn_control) async move {
                         let _permit = conn_control.acquire_permit(1).await;
                         let make_service = make_service_fn(|_| async { Ok::<_, Infallible>(service_fn(service)) });
-                        let builder = hyper::Server::builder(HyperStream(stream)).executor(HyperExecutor);
+                        let builder = hyper::Server::builder(HyperServer(Some(HyperStream(stream)))).executor(HyperExecutor);
                         if let Err(x) = builder.serve(make_service).await {
                             panic!("Stream from {:?} failed with error {:?}", addr, x);
                         }
@@ -111,7 +139,8 @@ use hyper::{
     header::{HeaderValue, CONNECTION},
     Uri, client::HttpConnector, Client
 };
-
+use http_body::Body as HttpBody;
+use bytes::buf::Buf;
 pub type HttpClient = Client<HttpConnector>;
 
 lazy_static! {
@@ -124,11 +153,12 @@ lazy_static! {
 
 pub async fn aggregate(body: hyper::Body) -> Result<hyper::Body, hyper::Error> {
     let mut bufs = Vec::new();
-
+    
     futures_util::pin_mut!(body);
     while let Some(buf) = body.data().await {
-        let buf = buf;
-        bufs.push(buf);
+        let buf = buf?;
+        let v:Result<hyper::body::Bytes, hyper::Error> = Ok(buf);
+        bufs.push(v);
     }
 
     let stream = futures_util::stream::iter(bufs);
@@ -138,7 +168,8 @@ pub async fn aggregate(body: hyper::Body) -> Result<hyper::Body, hyper::Error> {
     Ok(body)
 }
 
-async fn hyper_demo(req: Request<Body>) -> Result<Response<Body>, Infallible> {
+async fn hyper_demo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+    /*
     let (mut parts, body) = req.into_parts();
 
     // this line is to fetch all the body before sending to clients
@@ -152,7 +183,8 @@ async fn hyper_demo(req: Request<Body>) -> Result<Response<Body>, Infallible> {
     let req_fast = Request::from_parts(parts, body);
     let mapped = STATIC_CLIENT.request(req_fast).await?;
     Ok(mapped)
-    /*
+    */
+    
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/hello") => Ok(Response::new(Body::from("world"))),
         (&Method::GET, "/world") => Ok(Response::new(Body::from("hello"))),
@@ -160,7 +192,7 @@ async fn hyper_demo(req: Request<Body>) -> Result<Response<Body>, Infallible> {
             .status(StatusCode::NOT_FOUND)
             .body(Body::from("notfound"))
             .unwrap()),
-    }*/
+    }
 }
 
 fn main() {
