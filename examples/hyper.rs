@@ -44,22 +44,6 @@ mod hyper_compat {
         }
     }
 
-
-    struct HyperServer(pub Option<HyperStream>);
-    
-    impl hyper::server::accept::Accept for HyperServer {
-        type Conn=HyperStream;
-
-        type Error=Infallible;
-
-        fn poll_accept(
-            self: Pin<&mut Self>,
-            cx: &mut Context<'_>,
-        ) -> Poll<Option<Result<Self::Conn, Self::Error>>> {
-            Poll::Ready(Some(Ok(self.0.take().unwrap())))
-        }
-    }
-
     struct HyperStream(pub TcpStream);
     
     
@@ -119,9 +103,9 @@ mod hyper_compat {
                     let addr = stream.local_addr().unwrap();
                     Local::local(enclose!{(conn_control) async move {
                         let _permit = conn_control.acquire_permit(1).await;
-                        let make_service = make_service_fn(|_| async { Ok::<_, Infallible>(service_fn(service)) });
-                        let builder = hyper::Server::builder(HyperServer(Some(HyperStream(stream)))).executor(HyperExecutor);
-                        if let Err(x) = builder.serve(make_service).await {
+                        //let make_service = make_service_fn(|_| async { Ok::<_, Infallible>(service_fn(service)) });
+                        
+                        if let Err(x) = hyper::server::conn::Http::new().with_executor(HyperExecutor).serve_connection(HyperStream(stream), service_fn(service)).await {
                             panic!("Stream from {:?} failed with error {:?}", addr, x);
                         }
                     }}).detach();
@@ -140,7 +124,6 @@ use hyper::{
     Uri, client::HttpConnector, Client
 };
 use http_body::Body as HttpBody;
-use bytes::buf::Buf;
 pub type HttpClient = Client<HttpConnector>;
 
 lazy_static! {
@@ -169,7 +152,7 @@ pub async fn aggregate(body: hyper::Body) -> Result<hyper::Body, hyper::Error> {
 }
 
 async fn hyper_demo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
-    /*
+    
     let (mut parts, body) = req.into_parts();
 
     // this line is to fetch all the body before sending to clients
@@ -183,8 +166,8 @@ async fn hyper_demo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> 
     let req_fast = Request::from_parts(parts, body);
     let mapped = STATIC_CLIENT.request(req_fast).await?;
     Ok(mapped)
-    */
     
+    /*
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/hello") => Ok(Response::new(Body::from("world"))),
         (&Method::GET, "/world") => Ok(Response::new(Body::from("hello"))),
@@ -193,6 +176,7 @@ async fn hyper_demo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> 
             .body(Body::from("notfound"))
             .unwrap()),
     }
+    */
 }
 
 fn main() {
