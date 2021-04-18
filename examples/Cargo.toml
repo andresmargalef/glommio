@@ -23,6 +23,11 @@ bytes = "*"
 hyper = { version = "0.14.5", default-features = false, features = ["server", "stream", "client", "http1", "http2", "tcp"]  }
 tokio = { version = "1.4.0", default-features = false }
 
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
+
 [[example]]
 name = "echo"
 path = "echo.rs"

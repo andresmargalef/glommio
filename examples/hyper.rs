@@ -151,8 +151,7 @@ pub async fn aggregate(body: hyper::Body) -> Result<hyper::Body, hyper::Error> {
     Ok(body)
 }
 
-async fn hyper_demo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
-    
+async fn hyper_redirect(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     let (mut parts, body) = req.into_parts();
 
     // this line is to fetch all the body before sending to clients
@@ -166,17 +165,24 @@ async fn hyper_demo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> 
     let req_fast = Request::from_parts(parts, body);
     let mapped = STATIC_CLIENT.request(req_fast).await?;
     Ok(mapped)
-    
-    /*
-    match (req.method(), req.uri().path()) {
-        (&Method::GET, "/hello") => Ok(Response::new(Body::from("world"))),
-        (&Method::GET, "/world") => Ok(Response::new(Body::from("hello"))),
+}
+
+async fn hyper_consumer(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+    let _b = aggregate(req.into_body()).await;
+    Ok(Response::new(Body::from("OK consumed")))
+}
+
+async fn hyper_demo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+    let method = req.method();
+    let path = req.uri().path();
+    match (method, path) {
+        (&Method::POST, "/redirect") => hyper_redirect(req).await,
+        (&Method::POST, "/consume1") => hyper_consumer(req).await,
         _ => Ok(Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Body::from("notfound"))
             .unwrap()),
     }
-    */
 }
 
 fn main() {
@@ -184,7 +190,7 @@ fn main() {
     // see it in action
     let handle = LocalExecutorBuilder::new()
         .spawn(|| async move {
-            hyper_compat::serve_http(([0, 0, 0, 0], 8000), hyper_demo, 1)
+            hyper_compat::serve_http(([0, 0, 0, 0], 8080), hyper_demo, 1)
                 .await
                 .unwrap();
         })
