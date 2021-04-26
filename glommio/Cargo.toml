@@ -44,6 +44,10 @@ tokio = { version = "0.3.5", default-features = false, features = ["rt", "macros
 [build-dependencies]
 cc = "1.0.47"
 
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
 [features]
 bench = []
 

@@ -102,7 +102,7 @@ mod hyper_compat {
                 Ok(stream) => {
                     let addr = stream.local_addr().unwrap();
                     Local::local(enclose!{(conn_control) async move {
-                        let _permit = conn_control.acquire_permit(1).await;
+                        //let _permit = conn_control.acquire_permit(1).await;
                         //let make_service = make_service_fn(|_| async { Ok::<_, Infallible>(service_fn(service)) });
                         
                         if let Err(x) = hyper::server::conn::Http::new().with_executor(HyperExecutor).serve_connection(HyperStream(stream), service_fn(service)).await {
